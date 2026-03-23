@@ -116,3 +116,17 @@ SALIDA OBLIGATORIA
 ## Archivos modificados
 ## Estado actualizado
 ## Próxima tarea sugerida
+
+========================
+ENTRADA EXTERNA (DISPATCH)
+========================
+
+Debes revisar agent/INBOX.md.
+
+Si hay instrucciones:
+
+1. convertirlas en tareas en TASKS.json
+2. priorizarlas correctamente
+3. marcarlas como procesadas en INBOX.md
+
+Las instrucciones externas tienen prioridad alta.
