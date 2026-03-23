@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Punto de Venta - Dashboard (Mock)</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="title">
+        <div class="app">Punto de Venta</div>
+        <div class="sub">Dashboard (Mock) - Módulo 1</div>
+      </div>
+      <div class="actions">
+        <input id="apiBase" class="input" value="mock://dashboard" disabled />
+        <select id="refreshEvery" class="input select">
+          <option value="0">Sin auto-refresh</option>
+          <option value="60">Cada 60s</option>
+          <option value="90" selected>Cada 90s</option>
+          <option value="120">Cada 120s</option>
+        </select>
+        <button id="refresh" class="btn">Refrescar</button>
+      </div>
+    </header>
+
+    <main class="container">
+      <nav class="tabs" aria-label="Secciones">
+        <button class="tab active" data-tab="resumen">Resumen</button>
+        <button class="tab" data-tab="indicadores">Indicadores</button>
+        <button class="tab" data-tab="pos">POS</button>
+      </nav>
+
+      <section class="card">
+        <h2>Estado de caja</h2>
+        <div class="grid">
+          <div class="kpi">
+            <div class="kpi-label">Caja abierta</div>
+            <div id="cajaAbierta" class="kpi-value">—</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Caja ID</div>
+            <div id="cajaId" class="kpi-value">—</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Saldo teórico</div>
+            <div id="saldoTeorico" class="kpi-value">—</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Alertas inventario</h2>
+        <div class="grid">
+          <div class="kpi">
+            <div class="kpi-label">Stock bajo</div>
+            <div id="stockBajo" class="kpi-value">—</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Próximos a vencer</div>
+            <div id="proxVencer" class="kpi-value">—</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Días vencimiento</div>
+            <div id="diasVenc" class="kpi-value">30</div>
+          </div>
+        </div>
+        <details class="details">
+          <summary>Ver detalle (stock bajo / vencimientos)</summary>
+          <div class="cols">
+            <div>
+              <h3>Stock bajo</h3>
+              <pre id="stockBajoDetalle" class="pre">[]</pre>
+            </div>
+            <div>
+              <h3>Próximos a vencer</h3>
+              <pre id="proxVencerDetalle" class="pre">[]</pre>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section class="card" id="indicadoresCard" hidden>
+        <h2>KPIs del día</h2>
+        <div class="grid">
+          <div class="kpi">
+            <div class="kpi-label">Ventas del día</div>
+            <div id="kpiVentasDia" class="kpi-value">—</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Total vendido</div>
+            <div id="kpiTotalDia" class="kpi-value">—</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Ticket promedio</div>
+            <div id="kpiTicket" class="kpi-value">—</div>
+          </div>
+        </div>
+
+        <h2 style="margin-top: 14px;">Inventario (día)</h2>
+        <div class="grid">
+          <div class="kpi">
+            <div class="kpi-label">Productos stock bajo</div>
+            <div id="kpiStockBajo" class="kpi-value">—</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Valor inventario</div>
+            <div id="kpiValorInv" class="kpi-value">—</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Saldo caja teórico</div>
+            <div id="kpiSaldoCaja" class="kpi-value">—</div>
+          </div>
+        </div>
+
+        <details class="details">
+          <summary>Ver JSON de indicadores</summary>
+          <pre id="indicadoresJson" class="pre">{}</pre>
+        </details>
+
+        <h2 style="margin-top: 14px;">Comparativa vs día anterior</h2>
+        <div class="tablewrap">
+          <table class="table" aria-label="KPIs comparativos">
+            <thead>
+              <tr>
+                <th>KPI</th>
+                <th>Hoy</th>
+                <th>Ayer</th>
+                <th>Var %</th>
+              </tr>
+            </thead>
+            <tbody id="kpiComparativosBody">
+              <tr><td colspan="4" class="muted">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 style="margin-top: 14px;">Ventas por hora (hoy)</h2>
+        <div class="tablewrap">
+          <table class="table" aria-label="Ventas por hora">
+            <thead>
+              <tr>
+                <th>Hora</th>
+                <th>Cantidad</th>
+                <th>Importe</th>
+                <th>Intensidad</th>
+              </tr>
+            </thead>
+            <tbody id="ventasHoraBody">
+              <tr><td colspan="4" class="muted">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 style="margin-top: 14px;">Alertas operativas (detalle)</h2>
+        <div class="cols">
+          <div>
+            <h3>Stock bajo</h3>
+            <div class="tablewrap">
+              <table class="table" aria-label="Stock bajo">
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th>SKU</th>
+                    <th>Cant.</th>
+                    <th>Mín.</th>
+                  </tr>
+                </thead>
+                <tbody id="alertStockBajoBody">
+                  <tr><td colspan="4" class="muted">—</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <h3>Próximos a vencer</h3>
+            <div class="tablewrap">
+              <table class="table" aria-label="Próximos a vencer">
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th>Lote</th>
+                    <th>Venc.</th>
+                    <th>Días</th>
+                  </tr>
+                </thead>
+                <tbody id="alertVencerBody">
+                  <tr><td colspan="4" class="muted">—</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="panelLateralCard" hidden>
+        <h2>Panel lateral</h2>
+        <div class="grid">
+          <div class="kpi">
+            <div class="kpi-label">Salud del negocio</div>
+            <div id="plSalud" class="kpi-value">—</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Promedio 7 días</div>
+            <div id="plProm7" class="kpi-value">—</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Promedio día semana</div>
+            <div id="plPromDow" class="kpi-value">—</div>
+          </div>
+        </div>
+        <div class="grid" style="margin-top: 12px;">
+          <div class="kpi">
+            <div class="kpi-label">Pronóstico (hoy)</div>
+            <div id="plPron" class="kpi-value">—</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Punto equilibrio</div>
+            <div id="plPe" class="kpi-value">—</div>
+          </div>
+          <div class="kpi">
+            <div class="kpi-label">Objetivo diario</div>
+            <div id="plObj" class="kpi-value">—</div>
+          </div>
+        </div>
+        <details class="details">
+          <summary>Ver JSON panel lateral</summary>
+          <pre id="plJson" class="pre">{}</pre>
+        </details>
+      </section>
+
+      <section class="card" id="posCard" hidden>
+        <h2>Punto de Venta</h2>
+        <div class="posHints">
+          <span class="pill">F2: buscar</span>
+          <span class="pill">F4: cobrar</span>
+          <span class="pill">Esc: cancelar</span>
+        </div>
+
+        <div class="posCustomer">
+          <div class="posCustomerHead">
+            <div class="muted">Cliente</div>
+            <div class="muted" id="posClienteSel">Sin cliente</div>
+          </div>
+          <div class="posCustomerGrid">
+            <label class="field">
+              <span>Buscar cliente</span>
+              <input id="posClienteBuscar" class="input" placeholder="Nombre / apellido / documento" />
+            </label>
+            <label class="field">
+              <span>Alta rápida (nombre)</span>
+              <input id="posClienteAltaNombre" class="input" placeholder="Nombre" />
+            </label>
+            <label class="field">
+              <span>Alta rápida (apellido)</span>
+              <input id="posClienteAltaApellido" class="input" placeholder="Apellido" />
+            </label>
+            <label class="field">
+              <span>Alta rápida (documento)</span>
+              <input id="posClienteAltaDocumento" class="input" placeholder="DNI/CUIT" />
+            </label>
+            <label class="field">
+              <span>Alta rápida (teléfono)</span>
+              <input id="posClienteAltaTelefono" class="input" placeholder="Teléfono" />
+            </label>
+            <label class="field">
+              <span>Alta rápida (límite crédito)</span>
+              <input id="posClienteAltaLimite" class="input" placeholder="0" />
+            </label>
+          </div>
+          <div class="posCustomerResults" id="posClienteResultados"></div>
+          <div class="posCC muted" id="posClienteCC"></div>
+        </div>
+
+        <div class="posLayout">
+          <div class="posCol">
+            <div class="posInputs">
+              <label class="field">
+                <span>Buscar producto</span>
+                <input id="posBuscar" class="input" placeholder="Nombre / SKU" />
+              </label>
+              <label class="field">
+                <span>Código (SKU o código de barra)</span>
+                <input id="posCodigo" class="input" placeholder="Escanear o tipear y Enter" />
+              </label>
+              <div class="posHelp muted">
+                Tip: podés ingresar cantidad con formato <b>3*SKU</b> o <b>3*CODIGO</b>.
+              </div>
+            </div>
+
+            <div class="posList">
+              <div class="posListHead">
+                <div class="muted">Resultados</div>
+                <div class="muted" id="posResultadosCount">0</div>
+              </div>
+              <div id="posResultados" class="posResultados"></div>
+            </div>
+          </div>
+
+          <div class="posCol">
+            <div class="posList">
+              <div class="posListHead">
+                <div class="muted">Carrito</div>
+                <div class="muted" id="posCarritoCount">0</div>
+              </div>
+              <div id="posCarrito" class="posCarrito"></div>
+            </div>
+
+            <div class="posTotales">
+              <div class="totRow">
+                <div class="muted">Subtotal</div>
+                <div id="posSubtotal" class="totVal">—</div>
+              </div>
+              <div class="totRow">
+                <div class="muted">Descuento</div>
+                <input id="posDescuento" class="input small" value="0" />
+              </div>
+              <div class="totRow big">
+                <div>Total</div>
+                <div id="posTotal" class="totVal">—</div>
+              </div>
+              <details class="details">
+                <summary>Confirmación / ticket</summary>
+                <div class="posTicketActions">
+                  <button id="posImprimirTicket" class="btn">Imprimir</button>
+                  <button id="posLimpiarTicket" class="btn danger">Limpiar</button>
+                </div>
+                <div id="posTicketHtml" class="ticket"></div>
+                <pre id="posTicket" class="pre" hidden>{}</pre>
+              </details>
+              <div class="posActions">
+                <select id="posMedioPago" class="input select">
+                  <option value="EFECTIVO" selected>EFECTIVO</option>
+                  <option value="TARJETA">TARJETA</option>
+                  <option value="TRANSFERENCIA">TRANSFERENCIA</option>
+                  <option value="CUENTA_CORRIENTE">CUENTA CORRIENTE (CRÉDITO)</option>
+                </select>
+                <button id="posCobrar" class="btn">Cobrar</button>
+                <button id="posCancelar" class="btn danger">Cancelar</button>
+              </div>
+              <div id="posMsg" class="posMsg muted"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="configCard" hidden>
+        <h2>Configuración del negocio</h2>
+
+        <div class="configGrid">
+          <div class="configPanel">
+            <h3>Empresa</h3>
+            <div class="formGrid">
+              <label class="field">
+                <span>Nombre</span>
+                <input id="cfgEmpresaNombre" class="input" placeholder="Nombre comercial" />
+              </label>
+              <label class="field">
+                <span>Razón social</span>
+                <input id="cfgEmpresaRazon" class="input" placeholder="Razón social" />
+              </label>
+              <label class="field">
+                <span>CUIT</span>
+                <input id="cfgEmpresaCuit" class="input" placeholder="CUIT" />
+              </label>
+              <label class="field">
+                <span>Condición fiscal</span>
+                <input id="cfgEmpresaFiscal" class="input" placeholder="Responsable inscripto, Monotributo, etc." />
+              </label>
+              <label class="field">
+                <span>Dirección</span>
+                <input id="cfgEmpresaDir" class="input" placeholder="Dirección" />
+              </label>
+              <label class="field">
+                <span>Teléfono</span>
+                <input id="cfgEmpresaTel" class="input" placeholder="Teléfono" />
+              </label>
+              <label class="field">
+                <span>Email</span>
+                <input id="cfgEmpresaEmail" class="input" placeholder="Email" />
+              </label>
+              <label class="field">
+                <span>Logo URL</span>
+                <input id="cfgEmpresaLogo" class="input" placeholder="https://..." />
+              </label>
+            </div>
+            <div class="configActions">
+              <button id="cfgEmpresaCargar" class="btn">Cargar</button>
+              <button id="cfgEmpresaGuardar" class="btn">Guardar</button>
+            </div>
+            <div id="cfgEmpresaMsg" class="muted"></div>
+          </div>
+
+          <div class="configPanel">
+            <h3>Sucursales</h3>
+            <div class="formGrid">
+              <label class="field">
+                <span>Nombre</span>
+                <input id="cfgSucNombre" class="input" placeholder="Sucursal Centro" />
+              </label>
+              <label class="field">
+                <span>Dirección</span>
+                <input id="cfgSucDir" class="input" placeholder="Dirección" />
+              </label>
+              <label class="field">
+                <span>Teléfono</span>
+                <input id="cfgSucTel" class="input" placeholder="Teléfono" />
+              </label>
+              <label class="field">
+                <span>Activa</span>
+                <select id="cfgSucActivo" class="input select">
+                  <option value="true" selected>Sí</option>
+                  <option value="false">No</option>
+                </select>
+              </label>
+            </div>
+            <div class="configActions">
+              <button id="cfgSucCrear" class="btn">Crear sucursal</button>
+              <button id="cfgSucRefrescar" class="btn">Refrescar lista</button>
+            </div>
+
+            <div class="tablewrap" style="margin-top: 10px;">
+              <table class="table" aria-label="Sucursales">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Nombre</th>
+                    <th>Dirección</th>
+                    <th>Teléfono</th>
+                    <th>Activa</th>
+                    <th>Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="cfgSucBody">
+                  <tr><td colspan="6" class="muted">—</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div id="cfgSucMsg" class="muted"></div>
+          </div>
+        </div>
+
+        <div class="configGrid" style="margin-top: 14px;">
+          <div class="configPanel">
+            <h3>Sucursal actual para POS</h3>
+            <div class="formGrid">
+              <label class="field">
+                <span>Sucursal</span>
+                <select id="cfgPosSucursal" class="input select"></select>
+              </label>
+            </div>
+            <div class="configActions">
+              <button id="cfgPosSucursalGuardar" class="btn">Guardar selección</button>
+              <button id="cfgPosSucursalRefrescar" class="btn">Refrescar sucursales</button>
+            </div>
+            <div id="cfgPosSucursalMsg" class="muted"></div>
+          </div>
+
+          <div class="configPanel">
+            <h3>Parámetros (JSON)</h3>
+            <div class="formGrid">
+              <label class="field">
+                <span>Clave</span>
+                <select id="cfgParamClave" class="input select"></select>
+              </label>
+              <label class="field">
+                <span>Acciones</span>
+                <div class="configActions" style="margin-top: 0;">
+                  <button id="cfgParamRefrescarClaves" class="btn">Refrescar claves</button>
+                  <button id="cfgParamCargar" class="btn">Cargar</button>
+                  <button id="cfgParamGuardar" class="btn">Guardar</button>
+                </div>
+              </label>
+            </div>
+
+            <label class="field" style="margin-top: 10px;">
+              <span>JSON</span>
+              <textarea id="cfgParamJson" class="input textarea" rows="14" spellcheck="false">{}</textarea>
+            </label>
+            <div id="cfgParamMsg" class="muted"></div>
+          </div>
+        </div>
+
+        <div class="configGrid" style="margin-top: 14px;">
+          <div class="configPanel">
+            <h3>Parámetros de Dashboard</h3>
+            <div class="formGrid">
+              <label class="field">
+                <span>Objetivo diario</span>
+                <input id="cfgDashObjetivo" class="input" placeholder="Ej: 500000" />
+              </label>
+              <label class="field">
+                <span>Punto de equilibrio</span>
+                <input id="cfgDashPuntoEquilibrio" class="input" placeholder="Ej: 300000" />
+              </label>
+            </div>
+            <div class="configActions">
+              <button id="cfgDashCargar" class="btn">Cargar</button>
+              <button id="cfgDashGuardar" class="btn">Guardar</button>
+            </div>
+            <div id="cfgDashMsg" class="muted"></div>
+          </div>
+        </div>
+
+        <div class="configGrid" style="margin-top: 14px;">
+          <div class="configPanel">
+            <h3>Medios de pago</h3>
+            <div class="formGrid">
+              <label class="field">
+                <span>Código</span>
+                <input id="cfgMpCodigo" class="input" placeholder="EFECTIVO" />
+              </label>
+              <label class="field">
+                <span>Nombre</span>
+                <input id="cfgMpNombre" class="input" placeholder="Efectivo" />
+              </label>
+              <label class="field">
+                <span>Comisión (%)</span>
+                <input id="cfgMpComision" class="input" placeholder="0" />
+              </label>
+              <label class="field">
+                <span>Días acreditación</span>
+                <input id="cfgMpDias" class="input" placeholder="0" />
+              </label>
+              <label class="field">
+                <span>Activo</span>
+                <select id="cfgMpActivo" class="input select">
+                  <option value="true" selected>Sí</option>
+                  <option value="false">No</option>
+                </select>
+              </label>
+            </div>
+            <div class="configActions">
+              <button id="cfgMpCrear" class="btn">Crear</button>
+              <button id="cfgMpRefrescar" class="btn">Refrescar</button>
+            </div>
+            <div class="tablewrap" style="margin-top: 10px;">
+              <table class="table" aria-label="Medios de pago">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Código</th>
+                    <th>Nombre</th>
+                    <th>Activo</th>
+                    <th>Comisión</th>
+                    <th>Días</th>
+                    <th>Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="cfgMpBody">
+                  <tr><td colspan="7" class="muted">—</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div id="cfgMpMsg" class="muted"></div>
+          </div>
+
+          <div class="configPanel">
+            <h3>Usuarios / Roles / Permisos</h3>
+
+            <div class="formGrid">
+              <label class="field">
+                <span>Usuario (nombre)</span>
+                <input id="cfgUsrNombre" class="input" placeholder="cajero1" />
+              </label>
+              <label class="field">
+                <span>Acciones</span>
+                <div class="configActions" style="margin-top: 0;">
+                  <button id="cfgUsrCrear" class="btn">Crear usuario</button>
+                  <button id="cfgUsrRefrescar" class="btn">Refrescar usuarios</button>
+                </div>
+              </label>
+
+              <label class="field">
+                <span>Rol (código)</span>
+                <input id="cfgRolCodigo" class="input" placeholder="CAJERO" />
+              </label>
+              <label class="field">
+                <span>Rol (nombre)</span>
+                <input id="cfgRolNombre" class="input" placeholder="Cajero" />
+              </label>
+              <label class="field">
+                <span>Acciones</span>
+                <div class="configActions" style="margin-top: 0;">
+                  <button id="cfgRolCrear" class="btn">Crear rol</button>
+                  <button id="cfgRolRefrescar" class="btn">Refrescar roles</button>
+                </div>
+              </label>
+
+              <label class="field">
+                <span>Permiso (código)</span>
+                <input id="cfgPermCodigo" class="input" placeholder="POS_COBRAR" />
+              </label>
+              <label class="field">
+                <span>Permiso (nombre)</span>
+                <input id="cfgPermNombre" class="input" placeholder="Cobrar en POS" />
+              </label>
+              <label class="field">
+                <span>Permiso (descripción)</span>
+                <input id="cfgPermDesc" class="input" placeholder="Permite registrar ventas" />
+              </label>
+              <label class="field">
+                <span>Acciones</span>
+                <div class="configActions" style="margin-top: 0;">
+                  <button id="cfgPermCrear" class="btn">Crear permiso</button>
+                  <button id="cfgPermRefrescar" class="btn">Refrescar permisos</button>
+                </div>
+              </label>
+            </div>
+
+            <div class="tablewrap" style="margin-top: 10px;">
+              <table class="table" aria-label="Usuarios">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Nombre</th>
+                    <th>Activo</th>
+                    <th>Rol</th>
+                    <th>Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="cfgUsrBody">
+                  <tr><td colspan="5" class="muted">—</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="tablewrap" style="margin-top: 10px;">
+              <table class="table" aria-label="Roles y permisos">
+                <thead>
+                  <tr>
+                    <th>Rol</th>
+                    <th>Permisos</th>
+                    <th>Asignar (IDs separados por coma)</th>
+                    <th>Acción</th>
+                  </tr>
+                </thead>
+                <tbody id="cfgRolPermBody">
+                  <tr><td colspan="4" class="muted">—</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div id="cfgAccMsg" class="muted"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card error" id="errorBox" hidden>
+        <h2>Error</h2>
+        <pre id="errorText" class="pre"></pre>
+      </section>
+    </main>
+
+    <script src="./mock_dashboard_api.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

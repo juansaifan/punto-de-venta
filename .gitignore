@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Entornos
+.env
+venv/
+.env.*
+
+# Base de datos
+*.db
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Flutter / build
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Node (por si usas luego)
+node_modules/
