@@ -23,11 +23,20 @@ class _CajaPantallaPrincipalState extends State<CajaPantallaPrincipal> {
   List<TicketMock> _tickets = [];
   int? _filaSeleccionada;
   int _pestanaInferior = 0;
+  _ModoCaja _modoCaja = _ModoCaja.cobros;
+  List<_ClienteCC> _clientesCC = [];
+  int? _clienteCCSeleccionado;
+  final _controlBuscarCC = TextEditingController();
+  String _busquedaCC = '';
 
   /// Impresión automática del ticket al cobrar (UI; integración pendiente).
   bool _impresionAutomaticaTicket = false;
   /// Enviar factura por correo al finalizar (UI; integración pendiente).
   bool _envioFacturaPorEmail = false;
+  /// Imprimir comprobante de pago en CC (UI; integración pendiente).
+  bool _impresionAutomaticaCC = false;
+  /// Enviar recibo de pago CC por correo (UI; integración pendiente).
+  bool _envioReciboCCPorEmail = false;
 
   static const _bordePanel = Color(0xFFE1E3E8);
   static const _fondoApp = Color(0xFFF4F5F8);
@@ -43,6 +52,8 @@ class _CajaPantallaPrincipalState extends State<CajaPantallaPrincipal> {
   void initState() {
     super.initState();
     _cargarTickets();
+    _clientesCC = _clientesCCDemo();
+    if (_clientesCC.isNotEmpty) _clienteCCSeleccionado = _clientesCC.first.clienteId;
   }
 
   @override
@@ -50,6 +61,7 @@ class _CajaPantallaPrincipalState extends State<CajaPantallaPrincipal> {
     _controlBuscar.dispose();
     _focusBuscar.dispose();
     _observacionesTicketCtrl.dispose();
+    _controlBuscarCC.dispose();
     super.dispose();
   }
 
@@ -281,82 +293,129 @@ class _CajaPantallaPrincipalState extends State<CajaPantallaPrincipal> {
                           color: const Color(0xFF303645),
                         ),
                       ),
+                      const Spacer(),
+                      SegmentedButton<_ModoCaja>(
+                        segments: const [
+                          ButtonSegment(
+                            value: _ModoCaja.cobros,
+                            label: Text('Cobros'),
+                            icon: Icon(Icons.receipt_long_outlined, size: 16),
+                          ),
+                          ButtonSegment(
+                            value: _ModoCaja.cuentasCorrientes,
+                            label: Text('Cuentas corrientes'),
+                            icon: Icon(
+                              Icons.account_balance_wallet_outlined,
+                              size: 16,
+                            ),
+                          ),
+                        ],
+                        selected: {_modoCaja},
+                        onSelectionChanged: (s) =>
+                            setState(() => _modoCaja = s.first),
+                        style: SegmentedButton.styleFrom(
+                          selectedBackgroundColor: const Color(0xFFCCFBF1),
+                          selectedForegroundColor: const Color(0xFF0F766E),
+                          textStyle: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 10),
                 Expanded(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Expanded(
-                        flex: 7,
-                        child: Column(
+                  child: _modoCaja == _ModoCaja.cobros
+                      ? Row(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Container(
-                              padding: const EdgeInsets.all(10),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                border: Border.all(color: _bordePanel),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: TextField(
-                                controller: _controlBuscar,
-                                focusNode: _focusBuscar,
-                                decoration: const InputDecoration(
-                                  hintText:
-                                      'Escanear código de ticket o ingresar número',
-                                  prefixIcon: Icon(Icons.search),
-                                  isDense: true,
-                                ),
-                                onSubmitted: _onEscanearOCodigo,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
                             Expanded(
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: _bordePanel),
-                                ),
-                                clipBehavior: Clip.antiAlias,
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    Padding(
-                                      padding: const EdgeInsets.fromLTRB(
-                                          16, 14, 16, 10),
-                                      child: _resumenColaTexto(),
+                              flex: 7,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      border: Border.all(color: _bordePanel),
+                                      borderRadius: BorderRadius.circular(8),
                                     ),
-                                    Expanded(
-                                      child: Padding(
-                                        padding: const EdgeInsets.fromLTRB(
-                                            16, 0, 16, 16),
-                                        child: _cargando
-                                            ? const Center(
-                                                child:
-                                                    CircularProgressIndicator(),
-                                              )
-                                            : _tablaTickets(),
+                                    child: TextField(
+                                      controller: _controlBuscar,
+                                      focusNode: _focusBuscar,
+                                      decoration: const InputDecoration(
+                                        hintText:
+                                            'Escanear código de ticket o ingresar número',
+                                        prefixIcon: Icon(Icons.search),
+                                        isDense: true,
+                                      ),
+                                      onSubmitted: _onEscanearOCodigo,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Expanded(
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(8),
+                                        border:
+                                            Border.all(color: _bordePanel),
+                                      ),
+                                      clipBehavior: Clip.antiAlias,
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          Padding(
+                                            padding:
+                                                const EdgeInsets.fromLTRB(
+                                                    16, 14, 16, 10),
+                                            child: _resumenColaTexto(),
+                                          ),
+                                          Expanded(
+                                            child: Padding(
+                                              padding:
+                                                  const EdgeInsets.fromLTRB(
+                                                      16, 0, 16, 16),
+                                              child: _cargando
+                                                  ? const Center(
+                                                      child:
+                                                          CircularProgressIndicator(),
+                                                    )
+                                                  : _tablaTickets(),
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
+                            ),
+                            const SizedBox(width: 12),
+                            SizedBox(
+                              width: 360,
+                              child: _panelResumenTicketDerecho(),
+                            ),
+                          ],
+                        )
+                      : Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Expanded(
+                              flex: 7,
+                              child: _panelIzquierdoCC(),
+                            ),
+                            const SizedBox(width: 12),
+                            SizedBox(
+                              width: 360,
+                              child: _panelResumenCC(),
                             ),
                           ],
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      SizedBox(
-                        width: 360,
-                        child: _panelResumenTicketDerecho(),
-                      ),
-                    ],
-                  ),
                 ),
                 const SizedBox(height: 10),
                 _barraPestanasInferior(),
@@ -692,6 +751,685 @@ class _CajaPantallaPrincipalState extends State<CajaPantallaPrincipal> {
     );
   }
 
+  // ─────────────────────────────────────────────────────────
+  // Cuentas corrientes: panel izquierdo + tabla
+  // ─────────────────────────────────────────────────────────
+
+  List<_ClienteCC> _clientesCCDemo() {
+    final base = DateTime.now();
+    mov(
+      _TipoMovCC tipo,
+      int ref,
+      int diasAtras,
+      double monto,
+    ) =>
+        _MovimientoCC(
+          tipo: tipo,
+          ticketRef: ref,
+          fecha: DateTime(base.year, base.month, base.day - diasAtras),
+          monto: monto,
+        );
+
+    // Victoria Perez — saldo deudor $12,500
+    // Ticket 87 (día -14): $3,000 → pago completo día -12
+    // Ticket 98 (día -7):  $5,200 → pago parcial $1,200 (día -4)
+    // Ticket 101 (día -2): $8,500 → sin pago
+    // Balance: -3000+3000 -5200+1200 -8500 = -12,500 (debe $12,500)
+    final movVictoria = [
+      mov(_TipoMovCC.ticket, 87,  14, 3000),
+      mov(_TipoMovCC.pago,   87,  12, 3000),  // pago imputa al más vencido: 87
+      mov(_TipoMovCC.ticket, 98,   7, 5200),
+      mov(_TipoMovCC.pago,   98,   4, 1200),  // pago parcial al más vencido: 98
+      mov(_TipoMovCC.ticket, 101,  2, 8500),
+    ];
+
+    // Juan Gomez — saldo a favor $3,200
+    // Ticket 103 (día -5): $7,000 → pago $10,200 (día -3):
+    //   $7,000 cancela ticket 103; excedente $3,200 queda en ticket 103 (más nuevo)
+    final movJuan = [
+      mov(_TipoMovCC.ticket, 103, 5, 7000),
+      mov(_TipoMovCC.pago,   103, 3, 7000),   // cierra ticket 103
+      mov(_TipoMovCC.pago,   103, 3, 3200),   // excedente → ticket más nuevo (103)
+    ];
+
+    // Maria Rodriguez — saldo deudor $45,000, sin ningún pago
+    // Ticket 109 (día -8): $27,000 | Ticket 115 (día -3): $18,000
+    final movMaria = [
+      mov(_TipoMovCC.ticket, 109, 8, 27000),
+      mov(_TipoMovCC.ticket, 115, 3, 18000),
+    ];
+
+    // Luis Alvarez — al día $0
+    // Ticket 120 (día -1): $15,000 → pago completo hoy
+    final movLuis = [
+      mov(_TipoMovCC.ticket, 120, 1, 15000),
+      mov(_TipoMovCC.pago,   120, 0, 15000),
+    ];
+
+    return [
+      _ClienteCC(
+        clienteId: 3,
+        nombreCompleto: 'Victoria Perez',
+        documento: '32911452',
+        ultimoPago: DateTime(base.year, base.month, base.day - 4),
+        balance: 12500,
+        movimientos: movVictoria,
+      ),
+      _ClienteCC(
+        clienteId: 5,
+        nombreCompleto: 'Juan Gomez',
+        documento: '30111452',
+        ultimoPago: DateTime(base.year, base.month, base.day - 3),
+        balance: -3200,
+        movimientos: movJuan,
+      ),
+      _ClienteCC(
+        clienteId: 8,
+        nombreCompleto: 'Maria Rodriguez',
+        documento: '27911252',
+        ultimoPago: null,
+        balance: 45000,
+        movimientos: movMaria,
+      ),
+      _ClienteCC(
+        clienteId: 12,
+        nombreCompleto: 'Luis Alvarez',
+        documento: '22543936',
+        ultimoPago: DateTime(base.year, base.month, base.day),
+        balance: 0,
+        movimientos: movLuis,
+      ),
+    ];
+  }
+
+  Widget _panelIzquierdoCC() {
+    final q = _busquedaCC.trim().toLowerCase();
+    final filtrados = q.isEmpty
+        ? _clientesCC
+        : _clientesCC
+            .where(
+              (c) =>
+                  c.nombreCompleto.toLowerCase().contains(q) ||
+                  c.documento.contains(q) ||
+                  c.clienteId.toString().contains(q),
+            )
+            .toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: _bordePanel),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: TextField(
+            controller: _controlBuscarCC,
+            decoration: const InputDecoration(
+              hintText: 'Buscar cliente por nombre, DNI o código',
+              prefixIcon: Icon(Icons.search),
+              isDense: true,
+            ),
+            onChanged: (v) => setState(() => _busquedaCC = v),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Expanded(
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: _bordePanel),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                  child: _resumenCCTexto(filtrados.length),
+                ),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: _tablaClientesCC(filtrados),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _resumenCCTexto(int n) {
+    return Text.rich(
+      TextSpan(
+        style: const TextStyle(
+          fontSize: 15,
+          color: Color(0xFF4E586B),
+          height: 1.4,
+        ),
+        children: [
+          const TextSpan(
+            text: 'Clientes con cuentas: ',
+            style: TextStyle(fontWeight: FontWeight.w500),
+          ),
+          TextSpan(
+            text: '$n',
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF303645),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _tablaClientesCC(List<_ClienteCC> clientes) {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: _bordeGrilla),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _filaEncabezadoCC(),
+          Expanded(
+            child: clientes.isEmpty
+                ? const Center(
+                    child: Text(
+                      'Sin clientes coincidentes.',
+                      style: TextStyle(
+                        color: Color(0xFF6E7380),
+                        fontSize: 14,
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: clientes.length,
+                    itemBuilder: (context, i) =>
+                        _filaDatosCC(context, i, clientes),
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _filaEncabezadoCC() {
+    return Container(
+      color: _cabeceraTabla,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          _celdaGrilla(
+            flex: 1,
+            esEncabezado: true,
+            child: const Text('Nro'),
+          ),
+          _celdaGrilla(
+            flex: 3,
+            esEncabezado: true,
+            child: const Text('Cliente'),
+          ),
+          _celdaGrilla(
+            flex: 2,
+            esEncabezado: true,
+            child: const Text('DNI'),
+          ),
+          _celdaGrilla(
+            flex: 2,
+            esEncabezado: true,
+            child: const Text('Último pago'),
+          ),
+          _celdaGrilla(
+            flex: 2,
+            esEncabezado: true,
+            ultimaColumna: true,
+            align: TextAlign.right,
+            child: const Text('Balance'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _filaDatosCC(BuildContext context, int i, List<_ClienteCC> clientes) {
+    final c = clientes[i];
+    final sel = _clienteCCSeleccionado == c.clienteId;
+    final zebra = i.isEven ? _zebraClara : _zebraOscura;
+    final colorBalance = c.balance > 0.01
+        ? const Color(0xFFDC2626)
+        : c.balance < -0.01
+            ? const Color(0xFF16A34A)
+            : const Color(0xFF6E7380);
+
+    return Material(
+      color: sel ? const Color(0xFFD6EAF8) : zebra,
+      child: InkWell(
+        onTap: () => setState(() => _clienteCCSeleccionado = c.clienteId),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            _celdaGrilla(
+              flex: 1,
+              child: Text(
+                c.clienteId.toString().padLeft(4, '0'),
+                style: _estiloCeldaTabla.copyWith(
+                  fontWeight: FontWeight.w600,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ),
+            _celdaGrilla(flex: 3, child: Text(c.nombreCompleto)),
+            _celdaGrilla(
+              flex: 2,
+              child:
+                  Text(c.documento.isEmpty ? '—' : c.documento),
+            ),
+            _celdaGrilla(
+              flex: 2,
+              child: Text(
+                c.ultimoPago == null
+                    ? '—'
+                    : _formatoFechaCorta(c.ultimoPago!),
+              ),
+            ),
+            _celdaGrilla(
+              flex: 2,
+              ultimaColumna: true,
+              align: TextAlign.right,
+              child: Text(
+                c.balance == 0
+                    ? 'Al día'
+                    : c.balance < -0.01
+                        ? '+${_formatoMonto(c.balance.abs())}'
+                        : _formatoMonto(c.balance),
+                style: _estiloCeldaTabla.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: colorBalance,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _formatoFechaCorta(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}/'
+      '${d.month.toString().padLeft(2, '0')}/'
+      '${d.year.toString().substring(2)}';
+
+  // ─────────────────────────────────────────────────────────
+  // Cuentas corrientes: panel derecho
+  // ─────────────────────────────────────────────────────────
+
+  Widget _panelResumenCC() {
+    final matches = _clienteCCSeleccionado == null
+        ? <_ClienteCC>[]
+        : _clientesCC
+            .where((cc) => cc.clienteId == _clienteCCSeleccionado)
+            .toList();
+    final c = matches.isEmpty ? null : matches.first;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFDDE1E9)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: c == null
+          ? const Center(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Text(
+                  'Seleccione un cliente para ver su cuenta corriente.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Color(0xFF6E7380),
+                    fontSize: 14,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Header idéntico al de "Resumen del ticket"
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Resumen de cuenta',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                          color: Color(0xFF303645),
+                        ),
+                      ),
+                    ),
+                    _iconoToggleResumen(
+                      activo: _impresionAutomaticaCC,
+                      icono: Icons.print_rounded,
+                      tooltip: 'Imprimir comprobante de pago',
+                      onTap: () => setState(
+                          () => _impresionAutomaticaCC = !_impresionAutomaticaCC),
+                    ),
+                    const SizedBox(width: 2),
+                    _iconoToggleResumen(
+                      activo: _envioReciboCCPorEmail,
+                      icono: Icons.mark_email_read_outlined,
+                      tooltip: 'Enviar recibo por correo',
+                      onTap: () => setState(
+                          () => _envioReciboCCPorEmail = !_envioReciboCCPorEmail),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                _chipBalanceCC(c.balance),
+                const SizedBox(height: 14),
+                const Text(
+                  'Movimientos',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    color: Color(0xFF5D6778),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                // Cabecera libro mayor: Ticket | Importe | Cuenta | Fecha
+                Container(
+                  color: _cabeceraTabla,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        flex: 2,
+                        child: Text(
+                          'Ticket',
+                          style: _estiloEncabezadoTabla.copyWith(fontSize: 12),
+                        ),
+                      ),
+                      Expanded(
+                        flex: 3,
+                        child: Text(
+                          'Importe',
+                          textAlign: TextAlign.right,
+                          style: _estiloEncabezadoTabla.copyWith(fontSize: 12),
+                        ),
+                      ),
+                      Expanded(
+                        flex: 3,
+                        child: Text(
+                          'Cuenta',
+                          textAlign: TextAlign.right,
+                          style: _estiloEncabezadoTabla.copyWith(fontSize: 12),
+                        ),
+                      ),
+                      Expanded(
+                        flex: 2,
+                        child: Text(
+                          'Fecha',
+                          textAlign: TextAlign.right,
+                          style: _estiloEncabezadoTabla.copyWith(fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: c.movimientos.isEmpty
+                      ? const Center(
+                          child: Text(
+                            'Sin movimientos registrados.',
+                            style: TextStyle(
+                              color: Color(0xFF6E7380),
+                              fontSize: 13,
+                            ),
+                          ),
+                        )
+                      : Builder(
+                          builder: (context) {
+                            // Ordenar cronológicamente y calcular saldo por ticket
+                            final sorted = [...c.movimientos]
+                              ..sort((a, b) => a.fecha.compareTo(b.fecha));
+                            final saldos = <int, double>{};
+                            final filas = <({_MovimientoCC mov, double cuenta})>[];
+                            for (final m in sorted) {
+                              if (m.tipo == _TipoMovCC.ticket) {
+                                saldos[m.ticketRef] = m.monto;
+                              } else {
+                                saldos[m.ticketRef] =
+                                    (saldos[m.ticketRef] ?? 0) - m.monto;
+                              }
+                              filas.add((mov: m, cuenta: saldos[m.ticketRef]!));
+                            }
+                            // Mostrar más reciente arriba (leer de abajo hacia arriba)
+                            final display = filas.reversed.toList();
+                            return ListView.separated(
+                              itemCount: display.length,
+                              separatorBuilder: (_, __) =>
+                                  Divider(height: 1, color: _bordeGrilla),
+                              itemBuilder: (context, i) {
+                                final fila = display[i];
+                                final m = fila.mov;
+                                final cuenta = fila.cuenta;
+                                final esTicket = m.tipo == _TipoMovCC.ticket;
+
+                                // Color del saldo en Cuenta
+                                final Color colorCuenta = cuenta > 0.01
+                                    ? const Color(0xFFB91C1C)   // debe
+                                    : cuenta < -0.01
+                                        ? const Color(0xFF0F766E) // a favor
+                                        : const Color(0xFF15803D); // cancelado
+
+                                return Container(
+                                  color: esTicket
+                                      ? const Color(0xFFFFF5F5)
+                                      : const Color(0xFFF0FDF4),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 8),
+                                  child: Row(
+                                    children: [
+                                      // Ticket #
+                                      Expanded(
+                                        flex: 2,
+                                        child: Text(
+                                          _formatoTicket(m.ticketRef),
+                                          style: _estiloCeldaTabla.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 13,
+                                            fontFeatures: const [
+                                              FontFeature.tabularFigures(),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                      // Importe: monto del evento (ticket=dark, pago=verde)
+                                      Expanded(
+                                        flex: 3,
+                                        child: Text(
+                                          _formatoMonto(m.monto),
+                                          textAlign: TextAlign.right,
+                                          style: _estiloCeldaTabla.copyWith(
+                                            fontSize: 13,
+                                            color: esTicket
+                                                ? const Color(0xFF303645)
+                                                : const Color(0xFF15803D),
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                      // Cuenta: saldo acumulado del ticket tras este evento
+                                      Expanded(
+                                        flex: 3,
+                                        child: Text(
+                                          cuenta == 0
+                                              ? 'Cancelado'
+                                              : _formatoMonto(cuenta.abs()),
+                                          textAlign: TextAlign.right,
+                                          style: _estiloCeldaTabla.copyWith(
+                                            fontSize: 13,
+                                            color: colorCuenta,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                      // Fecha
+                                      Expanded(
+                                        flex: 2,
+                                        child: Text(
+                                          _formatoFechaCorta(m.fecha),
+                                          textAlign: TextAlign.right,
+                                          style: _estiloCeldaTabla.copyWith(
+                                            fontSize: 12,
+                                            color: const Color(0xFF6E7380),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            );
+                          },
+                        ),
+                ),
+                const SizedBox(height: 10),
+                const Divider(height: 1),
+                const SizedBox(height: 10),
+                FilledButton(
+                  style: estiloBotonBarraCaja(),
+                  onPressed: c.balance <= 0
+                      ? null
+                      : () async {
+                          final resultado = await PagarFacturaDialog.show(
+                            context,
+                            c.balance,
+                            esConsumidorFinal: false,
+                          );
+                          if (!mounted) return;
+                          if (resultado != null) {
+                            final buf = StringBuffer()
+                              ..write(
+                                'CC ${c.nombreCompleto} · '
+                                '${resultado.forma.etiqueta}',
+                              );
+                            if (resultado.montoRecibidoEfectivo != null) {
+                              buf.write(
+                                ' · Recibido: '
+                                '${formatoTotalFacturaConDecimales(resultado.montoRecibidoEfectivo!)}',
+                              );
+                            }
+                            if (resultado.observaciones.isNotEmpty) {
+                              buf.write(
+                                  ' · Obs: ${resultado.observaciones}');
+                            }
+                            buf.write(' — registrar pago CC: pendiente.');
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(buf.toString())),
+                            );
+                          }
+                        },
+                  child: Row(
+                    children: [
+                      const Text(
+                        'Registrar pago',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        _formatoMonto(c.balance.abs()),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget _chipBalanceCC(double balance) {
+    final debe = balance > 0.01;
+    final aFavor = balance < -0.01;
+    final Color bg = debe
+        ? const Color(0xFFFEF2F2)
+        : aFavor
+            ? const Color(0xFFF0FDF4)
+            : const Color(0xFFF3F4F6);
+    final Color borde = debe
+        ? const Color(0xFFFCA5A5)
+        : aFavor
+            ? const Color(0xFF86EFAC)
+            : const Color(0xFFE1E3E8);
+    final Color texto = debe
+        ? const Color(0xFFDC2626)
+        : aFavor
+            ? const Color(0xFF16A34A)
+            : const Color(0xFF6E7380);
+    final String label = debe
+        ? 'Saldo deudor'
+        : aFavor
+            ? 'Saldo a favor'
+            : 'Al día';
+    final String monto =
+        balance == 0 ? '—' : _formatoMonto(balance.abs());
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: borde),
+      ),
+      child: Row(
+        children: [
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: texto,
+                ),
+              ),
+              Text(
+                monto,
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: texto,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _tablaTickets() {
     return Container(
       decoration: BoxDecoration(
@@ -927,4 +1665,45 @@ class _TabCaja extends StatelessWidget {
 
 class _IntentBuscarCaja extends Intent {
   const _IntentBuscarCaja();
+}
+
+enum _ModoCaja { cobros, cuentasCorrientes }
+
+enum _TipoMovCC { ticket, pago }
+
+class _MovimientoCC {
+  const _MovimientoCC({
+    required this.tipo,
+    required this.ticketRef,
+    required this.fecha,
+    required this.monto,
+  });
+
+  /// [_TipoMovCC.ticket] = deuda nueva. [_TipoMovCC.pago] = pago del cliente.
+  final _TipoMovCC tipo;
+
+  /// Ticket al que se imputa (pagos: ticket más vencido con saldo; excedente: ticket más nuevo).
+  final int ticketRef;
+  final DateTime fecha;
+  final double monto;
+}
+
+class _ClienteCC {
+  const _ClienteCC({
+    required this.clienteId,
+    required this.nombreCompleto,
+    required this.documento,
+    this.ultimoPago,
+    required this.balance,
+    required this.movimientos,
+  });
+
+  final int clienteId;
+  final String nombreCompleto;
+  final String documento;
+  final DateTime? ultimoPago;
+
+  /// Positivo: el cliente debe dinero. Negativo: tiene saldo a favor.
+  final double balance;
+  final List<_MovimientoCC> movimientos;
 }

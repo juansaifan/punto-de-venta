@@ -9,6 +9,8 @@ enum FormaPagoFactura {
   efectivo,
   transferencia,
   tarjetaCreditoDebito,
+  tarjetaDebito,
+  tarjetaCredito,
   qr,
   combinado,
   cuentaCorriente,
@@ -19,6 +21,8 @@ extension FormaPagoFacturaX on FormaPagoFactura {
         FormaPagoFactura.efectivo => 'Efectivo',
         FormaPagoFactura.transferencia => 'Transferencia',
         FormaPagoFactura.tarjetaCreditoDebito => 'Tarjeta crédito / débito',
+        FormaPagoFactura.tarjetaDebito => 'Tarjeta débito',
+        FormaPagoFactura.tarjetaCredito => 'Tarjeta crédito',
         FormaPagoFactura.qr => 'QR',
         FormaPagoFactura.combinado => 'Combinado',
         FormaPagoFactura.cuentaCorriente => 'Cuenta Corriente',
@@ -28,6 +32,8 @@ extension FormaPagoFacturaX on FormaPagoFactura {
         FormaPagoFactura.efectivo => Icons.payments_rounded,
         FormaPagoFactura.transferencia => Icons.account_balance_outlined,
         FormaPagoFactura.tarjetaCreditoDebito => Icons.credit_card_rounded,
+        FormaPagoFactura.tarjetaDebito => Icons.credit_card_rounded,
+        FormaPagoFactura.tarjetaCredito => Icons.credit_score_rounded,
         FormaPagoFactura.qr => Icons.qr_code_2_rounded,
         FormaPagoFactura.combinado => Icons.layers_rounded,
         FormaPagoFactura.cuentaCorriente => Icons.request_quote_outlined,
@@ -52,6 +58,21 @@ String formatoTotalFacturaConDecimales(double valor) {
   return '${neg ? '-' : ''}\$${buf.toString()}.$dec';
 }
 
+/// Una línea de cobro dentro de un pago combinado.
+class LineaCobroResult {
+  const LineaCobroResult({
+    required this.metodo,
+    required this.monto,
+    this.ultimosDigitos,
+    this.codigoAutorizacion,
+  });
+
+  final FormaPagoFactura metodo;
+  final double monto;
+  final String? ultimosDigitos;
+  final String? codigoAutorizacion;
+}
+
 /// Resultado al confirmar el modal de cobro.
 class PagoFacturaResult {
   const PagoFacturaResult({
@@ -65,8 +86,7 @@ class PagoFacturaResult {
     this.tipoTarjeta,
     this.ultimosCuatroDigitos,
     this.codigoAutorizacion,
-    this.metodo2,
-    this.montoMetodo1,
+    this.lineasCobro,
   });
 
   final FormaPagoFactura forma;
@@ -75,18 +95,12 @@ class PagoFacturaResult {
   final bool sinVueltoAcreditarEnCuenta;
   final double saldoACuenta;
   final ClienteMock? clienteAsignado;
-  /// Transferencia: N° de comprobante / referencia.
   final String? numeroComprobante;
-  /// Tarjeta: tipo (crédito o débito).
   final TipoTarjeta? tipoTarjeta;
-  /// Tarjeta: últimos 4 dígitos (opcional).
   final String? ultimosCuatroDigitos;
-  /// Tarjeta: código de autorización (opcional).
   final String? codigoAutorizacion;
-  /// Combinado: segundo método de pago.
-  final FormaPagoFactura? metodo2;
-  /// Combinado: monto abonado con el método principal.
-  final double? montoMetodo1;
+  /// Combinado: lista de líneas de cobro (método + monto + campos extra).
+  final List<LineaCobroResult>? lineasCobro;
 }
 
 /// Mismo estilo que el botón «Total a pagar» en Caja (incl. hover web).
@@ -149,6 +163,42 @@ class PagarFacturaDialog extends StatefulWidget {
 
 enum _PasoPago { elegirMetodo, detalleMetodo }
 
+/// Métodos disponibles como fila dentro del pago combinado (excluye «Combinado»).
+const _metodosFilaCombinado = [
+  FormaPagoFactura.efectivo,
+  FormaPagoFactura.transferencia,
+  FormaPagoFactura.tarjetaDebito,
+  FormaPagoFactura.tarjetaCredito,
+  FormaPagoFactura.qr,
+  FormaPagoFactura.cuentaCorriente,
+];
+
+/// Una fila de la tabla de cobro combinado con sus controllers.
+class _LineaCombinado {
+  _LineaCombinado();
+
+  FormaPagoFactura metodo = FormaPagoFactura.efectivo;
+  final ctrlMonto = TextEditingController();
+  final ctrlUltimosDigitos = TextEditingController();
+  final ctrlCodAutorizacion = TextEditingController();
+
+  bool get esTarjeta =>
+      metodo == FormaPagoFactura.tarjetaDebito ||
+      metodo == FormaPagoFactura.tarjetaCredito;
+
+  void dispose() {
+    ctrlMonto.dispose();
+    ctrlUltimosDigitos.dispose();
+    ctrlCodAutorizacion.dispose();
+  }
+
+  double? get monto {
+    final raw = ctrlMonto.text.trim().replaceAll(',', '');
+    if (raw.isEmpty) return null;
+    return double.tryParse(raw);
+  }
+}
+
 class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
   static const _borde = Color(0xFFE1E3E8);
   static const _bordeSeleccion = Color(0xFF0D9488);
@@ -177,12 +227,16 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
   final _ctrlCodAutorizacion = TextEditingController();
 
   // ── Combinado ─────────────────────────────────────────────
-  FormaPagoFactura _metodoCombinado1 = FormaPagoFactura.efectivo;
-  FormaPagoFactura _metodoCombinado2 = FormaPagoFactura.transferencia;
-  final _ctrlMontoCombinado1 = TextEditingController();
+  late List<_LineaCombinado> _lineasCombinado;
 
   // ── Compartido ────────────────────────────────────────────
   final _ctrlObsDialogo = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _lineasCombinado = [_LineaCombinado()];
+  }
 
   @override
   void dispose() {
@@ -191,7 +245,9 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
     _ctrlComprobante.dispose();
     _ctrlUltimosDigitos.dispose();
     _ctrlCodAutorizacion.dispose();
-    _ctrlMontoCombinado1.dispose();
+    for (final l in _lineasCombinado) {
+      l.dispose();
+    }
     _ctrlObsDialogo.dispose();
     super.dispose();
   }
@@ -201,23 +257,18 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
     _ctrlComprobante.clear();
     _ctrlUltimosDigitos.clear();
     _ctrlCodAutorizacion.clear();
-    _ctrlMontoCombinado1.clear();
     _ctrlObsDialogo.clear();
     _sinVueltoActivo = false;
     _tipoTarjeta = TipoTarjeta.debito;
-    _metodoCombinado1 = FormaPagoFactura.efectivo;
-    _metodoCombinado2 = FormaPagoFactura.transferencia;
     _clienteAsignado = null;
+    for (final l in _lineasCombinado) {
+      l.dispose();
+    }
+    _lineasCombinado = [_LineaCombinado()];
   }
 
   double? _parseMontoIngresado() {
     final raw = _ctrlEfectivo.text.trim().replaceAll(',', '');
-    if (raw.isEmpty) return null;
-    return double.tryParse(raw);
-  }
-
-  double? _parseMontoCombinado1() {
-    final raw = _ctrlMontoCombinado1.text.trim().replaceAll(',', '');
     if (raw.isEmpty) return null;
     return double.tryParse(raw);
   }
@@ -323,7 +374,8 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
               onPressed: () => Navigator.of(context).pop(),
               style: TextButton.styleFrom(
                 foregroundColor: const Color(0xFF6B7280),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               ),
               child: const Text(
                 'Cancelar',
@@ -361,7 +413,10 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
     return switch (_seleccion) {
       FormaPagoFactura.efectivo => _buildDetalleEfectivo(context),
       FormaPagoFactura.transferencia => _buildDetalleTransferencia(context),
-      FormaPagoFactura.tarjetaCreditoDebito => _buildDetalleTarjeta(context),
+      FormaPagoFactura.tarjetaCreditoDebito ||
+      FormaPagoFactura.tarjetaDebito ||
+      FormaPagoFactura.tarjetaCredito =>
+        _buildDetalleTarjeta(context),
       FormaPagoFactura.qr => _buildDetalleQr(context),
       FormaPagoFactura.cuentaCorriente => _buildDetalleCuentaCorriente(context),
       FormaPagoFactura.combinado => _buildDetalleCombinado(context),
@@ -421,9 +476,13 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
             foregroundColor: const Color(0xFF374151),
             side: const BorderSide(color: _borde),
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           ),
-          child: const Text('Cancelar', style: TextStyle(fontWeight: FontWeight.w600)),
+          child: const Text(
+            'Cancelar',
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
         ),
         const Spacer(),
         FilledButton(
@@ -441,7 +500,10 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
                 const SizedBox(width: 12),
                 Text(
                   formatoTotalFacturaConDecimales(total),
-                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 16,
+                  ),
                 ),
               ],
             ),
@@ -459,7 +521,8 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
     int flexRight = 4,
   }) {
     return SizedBox(
-      height: (MediaQuery.of(context).size.height * 0.40).clamp(260.0, 380.0),
+      height:
+          (MediaQuery.of(context).size.height * 0.40).clamp(260.0, 380.0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -483,7 +546,11 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
       ),
       child: Row(
         children: [
-          const Icon(Icons.warning_amber_rounded, size: 18, color: Color(0xFFD97706)),
+          const Icon(
+            Icons.warning_amber_rounded,
+            size: 18,
+            color: Color(0xFFD97706),
+          ),
           const SizedBox(width: 8),
           const Expanded(
             child: Text(
@@ -495,15 +562,21 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
           TextButton(
             onPressed: () async {
               final cliente =
-                  await SelectorClienteComoVentas.mostrarDialogoSeleccion(context);
+                  await SelectorClienteComoVentas.mostrarDialogoSeleccion(
+                context,
+              );
               if (cliente != null && mounted) {
                 setState(() => _clienteAsignado = cliente);
               }
             },
             style: TextButton.styleFrom(
               foregroundColor: const Color(0xFFD97706),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              textStyle: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+              ),
             ),
             child: const Text('Asignar cliente'),
           ),
@@ -519,12 +592,14 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
   Widget _buildDetalleEfectivo(BuildContext context) {
     final pago = _parseMontoIngresado();
     final total = widget.total;
-    final pagoInsuficiente = pago != null && pago > 0 && pago < total - 0.009;
+    final pagoInsuficiente =
+        pago != null && pago > 0 && pago < total - 0.009;
     final bloqueadoPorConsumidorFinal =
         pagoInsuficiente && _esConsumidorFinalEfectivo;
     final canFinalizar = pago != null &&
         pago > 0 &&
-        (pago >= total || (pagoInsuficiente && !_esConsumidorFinalEfectivo));
+        (pago >= total ||
+            (pagoInsuficiente && !_esConsumidorFinalEfectivo));
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -565,7 +640,8 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
               forma: FormaPagoFactura.efectivo,
               montoRecibidoEfectivo: pago,
               observaciones: _ctrlObsDialogo.text.trim(),
-              sinVueltoAcreditarEnCuenta: pago! >= total ? _sinVueltoActivo : false,
+              sinVueltoAcreditarEnCuenta:
+                  pago! >= total ? _sinVueltoActivo : false,
               saldoACuenta: pagoInsuficiente ? total - pago : 0.0,
               clienteAsignado: _clienteAsignado,
             ),
@@ -633,26 +709,34 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
           decoration: InputDecoration(
             isDense: true,
             hintText: 'Ej.: 0001234567890',
-            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 14,
+            ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: _bordeSeleccion, width: 1.2),
+              borderSide:
+                  const BorderSide(color: _bordeSeleccion, width: 1.2),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide:
-                  BorderSide(color: _bordeSeleccion.withValues(alpha: 0.65)),
+              borderSide: BorderSide(
+                color: _bordeSeleccion.withValues(alpha: 0.65),
+              ),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: _bordeSeleccion, width: 1.6),
+              borderSide:
+                  const BorderSide(color: _bordeSeleccion, width: 1.6),
             ),
           ),
         ),
         const SizedBox(height: 20),
         Row(
           children: [
-            Expanded(child: Divider(height: 1, color: Colors.grey.shade300)),
+            Expanded(
+              child: Divider(height: 1, color: Colors.grey.shade300),
+            ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 10),
               child: Text(
@@ -664,7 +748,9 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
                 ),
               ),
             ),
-            Expanded(child: Divider(height: 1, color: Colors.grey.shade300)),
+            Expanded(
+              child: Divider(height: 1, color: Colors.grey.shade300),
+            ),
           ],
         ),
         const SizedBox(height: 12),
@@ -719,12 +805,14 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
               forma: FormaPagoFactura.tarjetaCreditoDebito,
               observaciones: _ctrlObsDialogo.text.trim(),
               tipoTarjeta: _tipoTarjeta,
-              ultimosCuatroDigitos: _ctrlUltimosDigitos.text.trim().isEmpty
-                  ? null
-                  : _ctrlUltimosDigitos.text.trim(),
-              codigoAutorizacion: _ctrlCodAutorizacion.text.trim().isEmpty
-                  ? null
-                  : _ctrlCodAutorizacion.text.trim(),
+              ultimosCuatroDigitos:
+                  _ctrlUltimosDigitos.text.trim().isEmpty
+                      ? null
+                      : _ctrlUltimosDigitos.text.trim(),
+              codigoAutorizacion:
+                  _ctrlCodAutorizacion.text.trim().isEmpty
+                      ? null
+                      : _ctrlCodAutorizacion.text.trim(),
             ),
           ),
         ),
@@ -759,7 +847,8 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
             ),
           ],
           selected: {_tipoTarjeta},
-          onSelectionChanged: (s) => setState(() => _tipoTarjeta = s.first),
+          onSelectionChanged: (s) =>
+              setState(() => _tipoTarjeta = s.first),
           style: SegmentedButton.styleFrom(
             selectedBackgroundColor: const Color(0xFFCCFBF1),
             selectedForegroundColor: const Color(0xFF0F766E),
@@ -831,8 +920,10 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
           decoration: InputDecoration(
             isDense: true,
             hintText: hint,
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 12,
+            ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: const BorderSide(color: _borde),
@@ -843,7 +934,8 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: _bordeSeleccion, width: 1.2),
+              borderSide:
+                  const BorderSide(color: _bordeSeleccion, width: 1.2),
             ),
           ),
         ),
@@ -864,7 +956,11 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
       children: [
         _headerDetalle(context, 'Pagar factura (QR)'),
         const SizedBox(height: 16),
-        const Icon(Icons.qr_code_2_rounded, size: 72, color: _bordeSeleccion),
+        const Icon(
+          Icons.qr_code_2_rounded,
+          size: 72,
+          color: _bordeSeleccion,
+        ),
         const SizedBox(height: 12),
         Text(
           formatoTotalFacturaConDecimales(total),
@@ -879,7 +975,11 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
         const Text(
           'Presentá el código QR al cliente y confirmá cuando el pago sea aprobado.',
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 13, color: Color(0xFF6B7280), height: 1.4),
+          style: TextStyle(
+            fontSize: 13,
+            color: Color(0xFF6B7280),
+            height: 1.4,
+          ),
         ),
         const SizedBox(height: 20),
         SizedBox(height: 110, child: _columnaObservaciones()),
@@ -933,7 +1033,10 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
               Expanded(
                 child: Text(
                   'El total ${formatoTotalFacturaConDecimales(total)} se acreditará en la cuenta corriente del cliente.',
-                  style: const TextStyle(fontSize: 12, color: Color(0xFF1D4ED8)),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF1D4ED8),
+                  ),
                 ),
               ),
             ],
@@ -964,261 +1067,435 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
   }
 
   // ────────────────────────────────────────────────────────────
-  // Detalle: Combinado
+  // Detalle: Combinado — tabla dinámica de métodos de pago
   // ────────────────────────────────────────────────────────────
-
-  static const _opcionesMetodoCombinado = [
-    FormaPagoFactura.efectivo,
-    FormaPagoFactura.transferencia,
-    FormaPagoFactura.tarjetaCreditoDebito,
-    FormaPagoFactura.qr,
-  ];
 
   Widget _buildDetalleCombinado(BuildContext context) {
     final total = widget.total;
-    final monto1 = _parseMontoCombinado1();
-    final monto2 = monto1 != null ? total - monto1 : null;
-    final canFinalizar =
-        monto1 != null && monto1 > 0.009 && monto1 < total - 0.009;
+    final sumaMontos = _lineasCombinado
+        .map((l) => l.monto ?? 0.0)
+        .fold(0.0, (a, b) => a + b);
+    final restante = total - sumaMontos;
+    final canFinalizar = restante.abs() <= 0.009 &&
+        _lineasCombinado.isNotEmpty &&
+        _lineasCombinado.every((l) => (l.monto ?? 0) > 0.009);
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _headerDetalle(context, 'Pagar factura (Combinado)'),
-        const SizedBox(height: 8),
-        _bloqueTotalYVuelto(mostrarLineaRoja: false),
-        const SizedBox(height: 14),
-        _contenedorDosColumnas(
-          context,
-          left: _columnaCombinado1(monto1, monto2),
-          right: _columnaCombinado2(monto2),
-        ),
-        const SizedBox(height: 20),
-        _filaBotonesAccion(
-          context,
-          canFinalizar: canFinalizar,
-          total: total,
-          onFinalizar: () => Navigator.of(context).pop(
+    return SizedBox(
+      height:
+          (MediaQuery.of(context).size.height * 0.75).clamp(480.0, 680.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _headerDetalle(context, 'Pagar factura (Combinado)'),
+          const SizedBox(height: 8),
+          _bloqueTotalYVuelto(mostrarLineaRoja: false),
+          const SizedBox(height: 14),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _tablaCobroCombinado(),
+                  const SizedBox(height: 8),
+                  _indicadorRestanteCombinado(restante),
+                  const SizedBox(height: 12),
+                ],
+              ),
+            ),
+          ),
+          SizedBox(height: 80, child: _columnaObservaciones()),
+          const SizedBox(height: 16),
+          _filaBotonesAccion(
+            context,
+            canFinalizar: canFinalizar,
+            total: total,
+            onFinalizar: () => Navigator.of(context).pop(
             PagoFacturaResult(
               forma: FormaPagoFactura.combinado,
               observaciones: _ctrlObsDialogo.text.trim(),
-              montoMetodo1: monto1,
-              metodo2: _metodoCombinado2,
+              lineasCobro: _lineasCombinado
+                  .map(
+                    (l) => LineaCobroResult(
+                      metodo: l.metodo,
+                      monto: l.monto!,
+                      ultimosDigitos: l.esTarjeta &&
+                              l.ctrlUltimosDigitos.text.trim().isNotEmpty
+                          ? l.ctrlUltimosDigitos.text.trim()
+                          : null,
+                      codigoAutorizacion: l.esTarjeta &&
+                              l.ctrlCodAutorizacion.text.trim().isNotEmpty
+                          ? l.ctrlCodAutorizacion.text.trim()
+                          : null,
+                    ),
+                  )
+                  .toList(),
             ),
           ),
         ),
       ],
-    );
+    ),
+  );
   }
 
-  Widget _columnaCombinado1(double? monto1, double? monto2) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Text(
-          'Método principal',
-          style: TextStyle(
-            fontWeight: FontWeight.w700,
-            fontSize: 13,
-            color: Color(0xFF5D6778),
-          ),
-        ),
-        const SizedBox(height: 8),
-        _gridMetodosCombinado(
-          seleccion: _metodoCombinado1,
-          onSelect: (f) => setState(() => _metodoCombinado1 = f),
-        ),
-        const SizedBox(height: 14),
-        const Text(
-          'Monto *',
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 13,
-            color: Color(0xFF374151),
-          ),
-        ),
-        const SizedBox(height: 6),
-        TextField(
-          controller: _ctrlMontoCombinado1,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'[\d.,]')),
-          ],
-          onChanged: (_) => setState(() {}),
-          decoration: InputDecoration(
-            isDense: true,
-            hintText: '0.00',
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: _bordeSeleccion, width: 1.2),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide:
-                  BorderSide(color: _bordeSeleccion.withValues(alpha: 0.65)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: _bordeSeleccion, width: 1.6),
-            ),
-          ),
-        ),
-        if (monto2 != null && monto2 > 0.009) ...[
-          const SizedBox(height: 8),
-          Text(
-            'Resto con ${_metodoCombinado2.etiqueta}: ${formatoTotalFacturaConDecimales(monto2)}',
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFFF59E0B),
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _columnaCombinado2(double? monto2) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Text(
-          'Segundo método',
-          style: TextStyle(
-            fontWeight: FontWeight.w700,
-            fontSize: 13,
-            color: Color(0xFF5D6778),
-          ),
-        ),
-        const SizedBox(height: 8),
-        _gridMetodosCombinado(
-          seleccion: _metodoCombinado2,
-          onSelect: (f) => setState(() => _metodoCombinado2 = f),
-        ),
-        const SizedBox(height: 14),
-        if (monto2 != null) ...[
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            decoration: BoxDecoration(
-              color: monto2 > 0.009
-                  ? const Color(0xFFF0FDF4)
-                  : const Color(0xFFFEF2F2),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: monto2 > 0.009
-                    ? const Color(0xFF86EFAC)
-                    : const Color(0xFFFCA5A5),
-              ),
-            ),
-            child: Text(
-              monto2 > 0.009
-                  ? 'Monto: ${formatoTotalFacturaConDecimales(monto2)}'
-                  : 'El monto del método principal cubre el total',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: monto2 > 0.009
-                    ? const Color(0xFF15803D)
-                    : const Color(0xFFDC2626),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
-        Expanded(child: _columnaObservaciones()),
-      ],
-    );
-  }
-
-  Widget _gridMetodosCombinado({
-    required FormaPagoFactura seleccion,
-    required void Function(FormaPagoFactura) onSelect,
-  }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (var r = 0; r < 2; r++) ...[
-          if (r > 0) const SizedBox(height: 8),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: _celdaMetodoCombinado(
-                  _opcionesMetodoCombinado[r * 2],
-                  seleccionado: seleccion == _opcionesMetodoCombinado[r * 2],
-                  onTap: () => onSelect(_opcionesMetodoCombinado[r * 2]),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _celdaMetodoCombinado(
-                  _opcionesMetodoCombinado[r * 2 + 1],
-                  seleccionado:
-                      seleccion == _opcionesMetodoCombinado[r * 2 + 1],
-                  onTap: () => onSelect(_opcionesMetodoCombinado[r * 2 + 1]),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ],
-    );
-  }
-
-  Widget _celdaMetodoCombinado(
-    FormaPagoFactura forma, {
-    required bool seleccionado,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
+  Widget _tablaCobroCombinado() {
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: _borde),
         borderRadius: BorderRadius.circular(8),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          height: 64,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: seleccionado ? _bordeSeleccion : _borde,
-              width: seleccionado ? 2 : 1,
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Encabezado
+          Container(
+            color: const Color(0xFFF3F4F6),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
               children: [
-                Icon(
-                  forma.icono,
-                  size: 20,
-                  color: seleccionado ? _bordeSeleccion : _iconoInactivo,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  forma.etiqueta,
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 9,
-                    height: 1.15,
-                    fontWeight:
-                        seleccionado ? FontWeight.w700 : FontWeight.w500,
-                    color: seleccionado
-                        ? const Color(0xFF0F766E)
-                        : const Color(0xFF4B5563),
+                const Expanded(
+                  flex: 3,
+                  child: Text(
+                    'Método de pago',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                      color: Color(0xFF374151),
+                    ),
                   ),
                 ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  flex: 2,
+                  child: Text(
+                    'Importe',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                      color: Color(0xFF374151),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  flex: 2,
+                  child: Text(
+                    '4 últ. dígitos',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                      color: Color(0xFF374151),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  flex: 2,
+                  child: Text(
+                    'Cód. autorización',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12,
+                      color: Color(0xFF374151),
+                    ),
+                  ),
+                ),
+                // Espacio para el botón de eliminar
+                const SizedBox(width: 36),
               ],
             ),
           ),
+          const Divider(height: 1, color: _borde),
+          // Filas de datos
+          for (var i = 0; i < _lineasCombinado.length; i++) ...[
+            if (i > 0) const Divider(height: 1, color: _borde),
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 8,
+              ),
+              child: _filaTablaCobroCombinado(_lineasCombinado[i], i),
+            ),
+          ],
+          const Divider(height: 1, color: _borde),
+          // Botón agregar
+          InkWell(
+            onTap: () => setState(
+              () => _lineasCombinado.add(_LineaCombinado()),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.add_circle_outline_rounded,
+                    size: 16,
+                    color: _tealAccion,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '+ Agregar método',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: _tealAccion,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _filaTablaCobroCombinado(_LineaCombinado linea, int index) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        // Dropdown método
+        Expanded(
+          flex: 3,
+          child: Container(
+            height: 42,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              border: Border.all(color: _borde),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: DropdownButton<FormaPagoFactura>(
+              value: linea.metodo,
+              isDense: true,
+              isExpanded: true,
+              underline: const SizedBox.shrink(),
+              items: _metodosFilaCombinado
+                  .map(
+                    (m) => DropdownMenuItem(
+                      value: m,
+                      child: Row(
+                        children: [
+                          Icon(m.icono, size: 14, color: _iconoInactivo),
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              m.etiqueta,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (v) {
+                if (v != null) {
+                  setState(() {
+                    linea.metodo = v;
+                    linea.ctrlUltimosDigitos.clear();
+                    linea.ctrlCodAutorizacion.clear();
+                  });
+                }
+              },
+            ),
+          ),
         ),
+        const SizedBox(width: 8),
+        // Campo importe
+        Expanded(
+          flex: 2,
+          child: TextField(
+            controller: linea.ctrlMonto,
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[\d.,]')),
+            ],
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: '0.00',
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 10,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: _borde),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide: const BorderSide(color: _borde),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8),
+                borderSide:
+                    const BorderSide(color: _bordeSeleccion, width: 1.2),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+        // Col 3: 4 últimos dígitos (solo tarjeta)
+        Expanded(
+          flex: 2,
+          child: linea.esTarjeta
+              ? _textFieldInlineCombinado(
+                  linea.ctrlUltimosDigitos,
+                  hint: '0000',
+                  formatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(4),
+                  ],
+                  keyboardType: TextInputType.number,
+                )
+              : const SizedBox.shrink(),
+        ),
+        const SizedBox(width: 8),
+        // Col 4: código de autorización (solo tarjeta)
+        Expanded(
+          flex: 2,
+          child: linea.esTarjeta
+              ? _textFieldInlineCombinado(
+                  linea.ctrlCodAutorizacion,
+                  hint: 'Cód.',
+                )
+              : const SizedBox.shrink(),
+        ),
+        // Botón eliminar (solo si hay más de una fila)
+        SizedBox(
+          width: 36,
+          child: _lineasCombinado.length > 1
+              ? IconButton(
+                  onPressed: () => setState(() {
+                    linea.dispose();
+                    _lineasCombinado.removeAt(index);
+                  }),
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    size: 16,
+                    color: Color(0xFF9CA3AF),
+                  ),
+                  tooltip: 'Eliminar línea',
+                  padding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                )
+              : null,
+        ),
+      ],
+    );
+  }
+
+  Widget _textFieldInlineCombinado(
+    TextEditingController ctrl, {
+    String hint = '',
+    List<TextInputFormatter>? formatters,
+    TextInputType? keyboardType,
+  }) {
+    return TextField(
+      controller: ctrl,
+      inputFormatters: formatters,
+      keyboardType: keyboardType,
+      onChanged: (_) => setState(() {}),
+      decoration: InputDecoration(
+        isDense: true,
+        hintText: hint,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: 10,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: _borde),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: _borde),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: const BorderSide(color: _bordeSeleccion, width: 1.2),
+        ),
+      ),
+    );
+  }
+
+  Widget _indicadorRestanteCombinado(double restante) {
+    if (restante.abs() <= 0.009) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF0FDF4),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFF86EFAC)),
+        ),
+        child: const Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            Icon(
+              Icons.check_circle_outline_rounded,
+              size: 14,
+              color: Color(0xFF15803D),
+            ),
+            SizedBox(width: 6),
+            Text(
+              'Monto distribuido correctamente',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF15803D),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final excede = restante < -0.009;
+    final color =
+        excede ? const Color(0xFFDC2626) : const Color(0xFFF59E0B);
+    final bgColor =
+        excede ? const Color(0xFFFEF2F2) : const Color(0xFFFFFBEB);
+    final borderColor =
+        excede ? const Color(0xFFFCA5A5) : const Color(0xFFFDE68A);
+    final texto = excede
+        ? 'Excede en: ${formatoTotalFacturaConDecimales(-restante)}'
+        : 'Restante: ${formatoTotalFacturaConDecimales(restante)}';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: borderColor),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          Icon(
+            excede
+                ? Icons.error_outline_rounded
+                : Icons.info_outline_rounded,
+            size: 14,
+            color: color,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            texto,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1245,7 +1522,8 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
             color: a ? _amarilloSinVueltoFondo : Colors.transparent,
             borderRadius: BorderRadius.circular(6),
             border: Border.all(
-              color: a ? _amarilloSinVueltoBorde : const Color(0xFFE5E7EB),
+              color:
+                  a ? _amarilloSinVueltoBorde : const Color(0xFFE5E7EB),
               width: 1,
             ),
           ),
@@ -1289,7 +1567,10 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
             color: Color(0xFF111827),
           ),
         ),
-        if (mostrarLineaRoja && pago != null && total != null && pago > 0) ...[
+        if (mostrarLineaRoja &&
+            pago != null &&
+            total != null &&
+            pago > 0) ...[
           const SizedBox(height: 8),
           if (pago > total + 0.009)
             Text(
@@ -1339,7 +1620,8 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
         TextField(
           controller: _ctrlEfectivo,
           focusNode: _focusEfectivo,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          keyboardType:
+              const TextInputType.numberWithOptions(decimal: true),
           inputFormatters: [
             FilteringTextInputFormatter.allow(RegExp(r'[\d.,]')),
           ],
@@ -1347,20 +1629,25 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
           decoration: InputDecoration(
             isDense: true,
             hintText: '0.00',
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 14,
+            ),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: _bordeSeleccion, width: 1.2),
+              borderSide:
+                  const BorderSide(color: _bordeSeleccion, width: 1.2),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide:
-                  BorderSide(color: _bordeSeleccion.withValues(alpha: 0.65)),
+              borderSide: BorderSide(
+                color: _bordeSeleccion.withValues(alpha: 0.65),
+              ),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: _bordeSeleccion, width: 1.6),
+              borderSide:
+                  const BorderSide(color: _bordeSeleccion, width: 1.6),
             ),
           ),
         ),
@@ -1447,7 +1734,8 @@ class _PagarFacturaDialogState extends State<PagarFacturaDialog> {
         side: const BorderSide(color: _borde),
         padding: const EdgeInsets.symmetric(vertical: 12),
         minimumSize: const Size(0, 44),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
       child: Text(formatoTotalFacturaConDecimales(m)),
     );

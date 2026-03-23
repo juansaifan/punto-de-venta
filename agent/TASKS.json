@@ -1,0 +1,10 @@
+{
+  "tasks": [
+    {
+      "id": "INIT-001",
+      "module": "general",
+      "description": "Analizar estructura del proyecto y validar coherencia con documentación",
+      "status": "pending"
+    }
+  ]
+}
